@@ -14,7 +14,8 @@
     "qrcode-terminal": "^0.12.0",
     "file-type": "^16.5.3",
     "node-fetch": "^2.6.9",
-    "FormData": "latest"
+    "FormData": "latest",
+    "express": "^4.19.2"
   },
   "devDependencies": {},
   "repository": {
