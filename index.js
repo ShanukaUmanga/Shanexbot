@@ -6,6 +6,7 @@ const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, fetchLat
 const pino = require('pino');
 const chalk = require('chalk');
 const { Boom } = require('@hapi/boom');
+const qrcode = require('qrcode-terminal');
 
 async function startShanex() {
     const { state, saveCreds } = await useMultiFileAuthState('./session');
@@ -16,12 +17,16 @@ async function startShanex() {
     const sock = makeWASocket({
         version,
         logger: pino({ level: 'silent' }),
-        auth: state,
-        printQRTerminal: true
+        auth: state
     });
 
     sock.ev.on('connection.update', (update) => {
-        const { connection, lastDisconnect } = update;
+        const { connection, lastDisconnect, qr } = update;
+
+        if (qr) {
+            console.log('[⚡] Scan this QR Code to connect WhatsApp:');
+            qrcode.generate(qr, { small: true });
+        }
 
         if (connection === 'close') {
             const reason = new Boom(lastDisconnect?.error)?.output?.statusCode;
@@ -36,6 +41,8 @@ async function startShanex() {
             console.log(chalk.green('[✔] SHANEX-MD Successfully Connected & Online! 🚀'));
         }
     });
+
+    sock.ev.on('creds.update', saveCreds);
 }
 
 startShanex();
