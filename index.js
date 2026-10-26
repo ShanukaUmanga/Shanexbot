@@ -2,51 +2,7 @@ const express = require('express');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, fetchLatestBaileysVersion } = require('@whiskeysockets/baileys');
-const pino = require('pino');
-const chalk = require('chalk');
-const { Boom } = require('@hapi/boom');
-const qrcode = require('qrcode-terminal');
-
-async function startShanex() {
-    const { state, saveCreds } = await useMultiFileAuthState('./session');
-    const { version } = await fetchLatestBaileysVersion();
-
-    console.log(chalk.yellow('[⚡] Starting SHANEX-MD Cyber Bot...'));
-
-    const sock = makeWASocket({
-        version,
-        logger: pino({ level: 'silent' }),
-        auth: state
-    });
-
-    sock.ev.on('connection.update', (update) => {
-        const { connection, lastDisconnect, qr } = update;
-
-        if (qr) {
-            console.log('[⚡] Scan this QR Code to connect WhatsApp:');
-            qrcode.generate(qr, { small: true });
-        }
-
-        if (connection === 'close') {
-            const reason = new Boom(lastDisconnect?.error)?.output?.statusCode;
-            console.log(chalk.red('[!] Connection Closed, Reconnecting...'));
-
-            if (reason !== DisconnectReason.loggedOut) {
-                startShanex();
-            } else {
-                console.log(chalk.red('[!] Device Logged Out. Please delete session folder and scan QR again.'));
-            }
-        } else if (connection === 'open') {
-            console.log(chalk.green('[✔] SHANEX-MD Successfully Connected & Online! 🚀'));
-        }
-    });
-
-    sock.ev.on('creds.update', saveCreds);
-}
-
-startShanex();
-
+// Render හි Port අවශ්‍යතාවය සඳහා වෙබ් සර්වර් එක
 app.get('/', (req, res) => {
     res.send('Shanexbot is running successfully!');
 });
@@ -54,3 +10,6 @@ app.get('/', (req, res) => {
 app.listen(PORT, () => {
     console.log(`Server is running on port ${PORT}`);
 });
+
+// බෝට්ගේ ප්‍රධාන ක්‍රියාකාරීත්වය ආරම්භ කිරීම සඳහා start.js ෆයිල් එක සම්බන්ධ කිරීම
+require('./start.js');
