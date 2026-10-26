@@ -58,12 +58,24 @@ async function startShanex() {
 
     sock.ev.on('creds.update', saveCreds);
 
+    // Message & Command Handling Logic
     sock.ev.on('messages.upsert', async (chatUpdate) => {
         try {
             const mek = chatUpdate.messages[0];
             if (!mek.message) return;
-            // බෝට්ගේ කමාන්ඩ් සහ ප්ලගින්ස් ක්‍රියාත්මක වන ප්‍රධාන කොටස මෙහි රන් වේ
-        } catch (err) {
+            
+            const messageType = Object.keys(mek.message)[0];
+            const body = (messageType === 'conversation') ? mek.message.conversation :
+                         (messageType === 'extendedTextMessage') ? mek.message.extendedTextMessage.text : '';
+            
+            const from = mek.key.remoteJid;
+            
+            // ටෙස්ට් කිරීම සඳහා මූලික කමාන්ඩ් එකක් (උදා: .ping යැවූ විට පිළිතුරු දීම)
+            if (body === '.ping' || body === 'ping') {
+                await sock.sendMessage(from, { text: 'Pong! 🚀 SHANEX-MD is active and working!' }, { quoted: mek });
+            }
+            
+        }ച്ച catch (err) {
             console.log(err);
         }
     });
