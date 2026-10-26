@@ -1,51 +1,84 @@
-const os = require('os');
+const express = require('express');
+const app = express();
+const path = require('path');
+const pairRouter = require('./pair');
+const PORT = process.env.PORT || 8000;
 
-module.exports = {
-    // Command Name
-    name: 'alive',
-    alias: ['status', 'runtime'],
-    description: 'Check if the bot is online',
-    
-    run: async (sock, mek, m, { reply }) => {
-        // Calculate Uptime
-        const uptime = process.uptime();
-        const hours = Math.floor(uptime / 3600);
-        const minutes = Math.floor((uptime % 3600) / 60);
-        const seconds = Math.floor(uptime % 60);
+const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, fetchLatestBaileysVersion } = require('@whiskeysockets/baileys');
+const pino = require('pino');
+const chalk = require('chalk');
+const { Boom } = require('@hapi/boom');
+const qrcode = require('qrcode-terminal');
 
-        // Cyber Styled Alive Message
-        let aliveText = `
-👋 *HI, PRO BOT 🔥 I'M ALIVE NOW 🤖*
+// Static files (Web Page)
+app.use(express.static(path.join(__dirname, 'public')));
 
-┌  「 *DATE INFORMATION* 」
-│ 📅 *Date:* ${new Date().toLocaleDateString()}
-│ ⏰ *Time:* ${new Date().toLocaleTimeString()}
-└─────────────────────
+// Pairing Code Route
+app.use('/pair', pairRouter);
 
-┌  「 *STATUS DETAILS* 」
-│ 👤 *User:* SHANEX-MD ⚡
-│ 💻 *Owner:* Shanuka Umanga
-│ 🔑 *Prefix:* .
-│ 🧬 *Version:* v1.0.0
-│ 🎈 *Platform:* ${os.platform()}
-│ ⏱️ *Uptime:* ${hours} hours ${minutes} minutes ${seconds} seconds
-└─────────────────────
+app.listen(PORT, () => {
+    console.log(`[⚡] SHANEX-MD Web Server running on port ${PORT}`);
+});
 
-┌  「 *MAIN COMMANDS* 」
-│ 💡 Some commands you can use:
-│ 🔸 .menu
-│ 🔸 .alive
-│ 🔸 .system
-└─────────────────────
+// WhatsApp Bot Connection Logic
+async function startShanex() {
+    const { state, saveCreds } = await useMultiFileAuthState('./session');
+    const { version } = await fetchLatestBaileysVersion();
 
-© *SHANEX-MD Cyber Bot v1.0.0*
-_Crafted by Shanuka Umanga_ 🛡️
-        `.trim();
+    console.log(chalk.yellow('[⚡] Starting SHANEX-MD Cyber Bot...'));
 
-        // Send Image with Alive Caption
-        await sock.sendMessage(m.chat, {
-            image: { url: 'https://raw.githubusercontent.com/shanexstudio/SHANEX-MD/07dd6099e75ba96f31c8b43a21ead2fb7c30a192/Shanex%20Studio%20Cyber-Gold%20Banner.png' },
-            caption: aliveText
-        }, { quoted: mek });
-    }
-};
+    const sock = makeWASocket({
+        version,
+        logger: pino({ level: 'silent' }),
+        auth: state,
+        printQRInTerminal: true
+    });
+
+    sock.ev.on('connection.update', (update) => {
+        const { connection, lastDisconnect, qr } = update;
+
+        if (qr) {
+            console.log('[⚡] Scan this QR Code to connect WhatsApp:');
+            qrcode.generate(qr, { small: true });
+        }
+
+        if (connection === 'close') {
+            const reason = new Boom(lastDisconnect?.error)?.output?.statusCode;
+            console.log(chalk.red('[!] Connection Closed, Reconnecting...'));
+
+            if (reason !== DisconnectReason.loggedOut) {
+                startShanex();
+            } else {
+                console.log(chalk.red('[!] Device Logged Out. Please scan QR again.'));
+            }
+        } else if (connection === 'open') {
+            console.log(chalk.green('[✔] SHANEX-MD Successfully Connected & Online! 🚀'));
+        }
+    });
+
+    sock.ev.on('creds.update', saveCreds);
+
+    // Message & Command Handling Logic
+    sock.ev.on('messages.upsert', async (chatUpdate) => {
+        try {
+            const mek = chatUpdate.messages[0];
+            if (!mek.message) return;
+            
+            const messageType = Object.keys(mek.message)[0];
+            const body = (messageType === 'conversation') ? mek.message.conversation :
+                         (messageType === 'extendedTextMessage') ? mek.message.extendedTextMessage.text : '';
+            
+            const from = mek.key.remoteJid;
+            
+            // ටෙස්ට් කිරීම සඳහා මූලික කමාන්ඩ් එකක් (උදා: .ping යැවූ විට පිළිතුරු දීම)
+            if (body === '.ping' || body === 'ping') {
+                await sock.sendMessage(from, { text: 'Pong! 🚀 SHANEX-MD is active and working!' }, { quoted: mek });
+            }
+            
+        } catch (err) {
+            console.log(err);
+        }
+    });
+}
+
+startShanex();
