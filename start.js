@@ -1,84 +1,155 @@
+
 const express = require('express');
 const app = express();
 const path = require('path');
-const pairRouter = require('./pair');
-const PORT = process.env.PORT || 8000;
 
-const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, fetchLatestBaileysVersion } = require('@whiskeysockets/baileys');
+const pairRouter = require('./pair');
+
+const {
+    default: makeWASocket,
+    useMultiFileAuthState,
+    DisconnectReason,
+    fetchLatestBaileysVersion
+} = require('@whiskeysockets/baileys');
+
 const pino = require('pino');
 const chalk = require('chalk');
 const { Boom } = require('@hapi/boom');
 const qrcode = require('qrcode-terminal');
 
-// Static files (Web Page)
+const PORT = process.env.PORT || 8000;
+
+// Static Web Files
 app.use(express.static(path.join(__dirname, 'public')));
 
 // Pairing Code Route
 app.use('/pair', pairRouter);
 
-app.listen(PORT, () => {
-    console.log(`[⚡] SHANEX-MD Web Server running on port ${PORT}`);
+// Start Web Server
+app.listen(PORT, '0.0.0.0', () => {
+    console.log(
+        `[⚡] SHANEX-MD Web Server running on port ${PORT}`
+    );
 });
 
-// WhatsApp Bot Connection Logic
+// WhatsApp Bot Connection
+let reconnecting = false;
+
 async function startShanex() {
-    const { state, saveCreds } = await useMultiFileAuthState('./session');
-    const { version } = await fetchLatestBaileysVersion();
+    try {
+        const { state, saveCreds } =
+            await useMultiFileAuthState('./session');
 
-    console.log(chalk.yellow('[⚡] Starting SHANEX-MD Cyber Bot...'));
+        const { version } =
+            await fetchLatestBaileysVersion();
 
-    const sock = makeWASocket({
-        version,
-        logger: pino({ level: 'silent' }),
-        auth: state,
-        printQRInTerminal: true
-    });
+        console.log(
+            chalk.yellow('[⚡] Starting SHANEX-MD Cyber Bot...')
+        );
 
-    sock.ev.on('connection.update', (update) => {
-        const { connection, lastDisconnect, qr } = update;
+        const sock = makeWASocket({
+            version,
+            logger: pino({ level: 'silent' }),
+            auth: state,
+            printQRInTerminal: true
+        });
 
-        if (qr) {
-            console.log('[⚡] Scan this QR Code to connect WhatsApp:');
-            qrcode.generate(qr, { small: true });
-        }
+        sock.ev.on('creds.update', saveCreds);
 
-        if (connection === 'close') {
-            const reason = new Boom(lastDisconnect?.error)?.output?.statusCode;
-            console.log(chalk.red('[!] Connection Closed, Reconnecting...'));
+        sock.ev.on('connection.update', (update) => {
+            const { connection, lastDisconnect, qr } = update;
 
-            if (reason !== DisconnectReason.loggedOut) {
-                startShanex();
-            } else {
-                console.log(chalk.red('[!] Device Logged Out. Please scan QR again.'));
+            if (qr) {
+                console.log('[⚡] Scan QR to connect WhatsApp:');
+                qrcode.generate(qr, { small: true });
             }
-        } else if (connection === 'open') {
-            console.log(chalk.green('[✔] SHANEX-MD Successfully Connected & Online! 🚀'));
-        }
-    });
 
-    sock.ev.on('creds.update', saveCreds);
-
-    // Message & Command Handling Logic
-    sock.ev.on('messages.upsert', async (chatUpdate) => {
-        try {
-            const mek = chatUpdate.messages[0];
-            if (!mek.message) return;
-            
-            const messageType = Object.keys(mek.message)[0];
-            const body = (messageType === 'conversation') ? mek.message.conversation :
-                         (messageType === 'extendedTextMessage') ? mek.message.extendedTextMessage.text : '';
-            
-            const from = mek.key.remoteJid;
-            
-            // ටෙස්ට් කිරීම සඳහා මූලික කමාන්ඩ් එකක් (උදා: .ping යැවූ විට පිළිතුරු දීම)
-            if (body === '.ping' || body === 'ping') {
-                await sock.sendMessage(from, { text: 'Pong! 🚀 SHANEX-MD is active and working!' }, { quoted: mek });
+            if (connection === 'open') {
+                console.log(
+                    chalk.green(
+                        '[✔] SHANEX-MD Successfully Connected & Online!'
+                    )
+                );
             }
-            
-        }ച്ച catch (err) {
-            console.log(err);
-        }
-    });
+
+            if (connection === 'close') {
+                const reason =
+                    new Boom(lastDisconnect?.error)
+                        .output?.statusCode;
+
+                console.log(
+                    chalk.red('[!] WhatsApp connection closed.')
+                );
+
+                if (reason === DisconnectReason.loggedOut) {
+                    console.log(
+                        chalk.red(
+                            '[!] Device logged out. Reconnect WhatsApp.'
+                        )
+                    );
+                    return;
+                }
+
+                if (!reconnecting) {
+                    reconnecting = true;
+
+                    setTimeout(async () => {
+                        reconnecting = false;
+                        await startShanex();
+                    }, 3000);
+                }
+            }
+        });
+
+        // Message & Command Handling
+        sock.ev.on('messages.upsert', async (chatUpdate) => {
+            try {
+                const mek = chatUpdate.messages?.[0];
+
+                if (!mek || !mek.message) return;
+                if (mek.key.fromMe) return;
+
+                const messageType =
+                    Object.keys(mek.message)[0];
+
+                const body =
+                    messageType === 'conversation'
+                        ? mek.message.conversation
+                        : messageType === 'extendedTextMessage'
+                            ? mek.message.extendedTextMessage.text
+                            : '';
+
+                const from = mek.key.remoteJid;
+
+                if (!from || !body) return;
+
+                if (
+                    body.trim().toLowerCase() === '.ping' ||
+                    body.trim().toLowerCase() === 'ping'
+                ) {
+                    await sock.sendMessage(
+                        from,
+                        {
+                            text:
+                                'Pong! 🚀 SHANEX-MD is active and working!'
+                        },
+                        { quoted: mek }
+                    );
+                }
+            } catch (err) {
+                console.error(
+                    '[SHANEX-MD] Message handler error:',
+                    err
+                );
+            }
+        });
+
+    } catch (err) {
+        console.error(
+            '[SHANEX-MD] Startup error:',
+            err
+        );
+    }
 }
 
 startShanex();
